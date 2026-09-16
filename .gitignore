@@ -1,0 +1,34 @@
+# ── Data (chỉ giữ sample) ────────────────────────────────────────────────────
+data/final_dataset.json
+data/train.json
+data/val.json
+data/test.json
+
+# ── Model artifacts ──────────────────────────────────────────────────────────
+*.pt
+*.bin
+*.safetensors
+checkpoints/
+output/
+
+# ── VnCoreNLP ────────────────────────────────────────────────────────────────
+VnCoreNLP-1.2.jar
+vncorenlp/
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# ── IDE / OS ─────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
