@@ -1,3 +1,4 @@
+```text
 system/
 ├── frontend/                  ← React app DUY NHẤT
 │   ├── src/
@@ -22,3 +23,4 @@ system/
 │   └── requirements.txt
 │
 └── docker-compose.yml         ← spin lên cùng nhau (tùy chọn)
+```
