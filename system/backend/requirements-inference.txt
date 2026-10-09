@@ -1,0 +1,4 @@
+# Inference only; reuse the existing Python environment, no training packages.
+torch==2.14.1
+transformers==4.57.6
+py_vncorenlp==0.1.4

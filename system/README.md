@@ -1,96 +1,221 @@
-﻿# Tổ chức ứng dụng quản lý đơn hàng
+﻿# Manage — ứng dụng quản lý đơn món ăn
 
-Kiến trúc mục tiêu: một frontend React, một backend FastAPI và MongoDB dùng chung cho ba trang **Manage**, **Kitchen**, **Delivery**. Mỗi trang là một module trong cùng ứng dụng. Cấu trúc dưới đây là định hướng triển khai, không phải danh sách các thành phần đã hoàn thành.
+Ưu tiên chức năng trước: nhập văn bản → NER → chỉnh thực thể → xác nhận → lưu MongoDB → mở lại và sửa khi còn chờ nấu. Kitchen và Delivery chỉ là tab giữ chỗ. Chưa có sáng/tối, print, ghi âm, animation hoặc shadow.
 
-## Cấu trúc thư mục
+## 1. Kiến trúc và cấu trúc hiện tại
+
+- **React + Tailwind + Vite**: giao diện ba tab, triển khai chức năng Manage.
+- **Node.js + Express + MongoDB Node.js Driver**: API và lưu trữ; không dùng Mongoose hoặc FastAPI.
+- **Python worker**: tái sử dụng `src/food_ner`, giữ model trong một tiến trình, không tải/nạp lại theo từng yêu cầu. Không cần thêm Python HTTP server.
+- Một `package.json`, một `package-lock.json` và một `node_modules` ở `system/` dùng chung frontend/backend. Python tái sử dụng môi trường `env` hiện có ở thư mục workspace.
 
 ```text
 system/
+├── package.json                 # Dependencies + lệnh chạy chung
+├── package-lock.json            # Khóa phiên bản npm; commit cùng package.json
+├── vite.config.js               # React, Tailwind, proxy /api về port 3001
+├── .env.example                 # Cấu hình mẫu, không có credentials
+├── .gitignore
 ├── frontend/
+│   ├── index.html
 │   ├── src/
-│   │   ├── app/
-│   │   │   ├── App.jsx                # Bố cục và điều hướng chung
-│   │   │   └── routes.jsx             # /manage, /kitchen, /delivery
-│   │   ├── features/
-│   │   │   ├── manage/                # UI và logic Manage
-│   │   │   ├── kitchen/               # UI và logic Kitchen
-│   │   │   └── delivery/              # UI và logic Delivery
-│   │   └── shared/
-│   │       ├── components/            # Thẻ đơn, nút, bộ lọc dùng chung
-│   │       ├── hooks/                 # Logic dùng chung
-│   │       └── api/                   # HTTP client và API đơn hàng
-│   ├── .env.example                   # Cấu hình mẫu, không chứa secrets
-│   ├── package.json                   # Dependencies cho cả ba trang
-│   └── package-lock.json              # Thống nhất dùng npm
+│   │   ├── App.jsx              # Ba tab; giữ bản nháp khi chuyển tab
+│   │   ├── main.jsx
+│   │   ├── styles.css           # Tailwind, style tối giản
+│   │   ├── shared/
+│   │   │   ├── api.js           # Gọi API, timeout, thông báo lỗi
+│   │   │   └── Icon.jsx         # SVG cơ bản; không thêm thư viện icon
+│   │   └── features/manage/
+│   │       ├── ManagePage.jsx   # Bố cục danh sách, hội thoại, ô nhập
+│   │       └── useManage.js     # Bản nháp, phân tích, xác nhận, mở đơn
+│   └── tests/manage.spec.js     # Kiểm tra trình duyệt bằng API giả riêng
 ├── backend/
-│   ├── app/
-│   │   ├── main.py                    # Khởi tạo FastAPI
-│   │   ├── core/                      # Cấu hình và kết nối database
-│   │   ├── routers/
-│   │   │   ├── manage.py              # Nhập, trích xuất, xác nhận đơn
-│   │   │   ├── kitchen.py             # Nhận và cập nhật chế biến
-│   │   │   └── delivery.py            # Nhận và cập nhật giao hàng
-│   │   ├── schemas/                   # Schema dữ liệu vào/ra dùng chung
-│   │   ├── services/
-│   │   │   ├── order_service.py       # Quy tắc đơn hàng/chuyển trạng thái
-│   │   │   └── ner_service.py         # Tích hợp model NER hiện có
-│   │   └── repositories/              # Đọc/ghi MongoDB dùng chung
-│   ├── tests/                         # Kiểm tra API và nghiệp vụ
-│   ├── .env.example                   # Database URI, đường dẫn model, ...
-│   └── requirements.txt               # Dependencies runtime backend/NER
-├── docs/
-│   └── order-contract.md              # Schema đơn, API, luồng trạng thái
+│   ├── src/
+│   │   ├── server.js            # Cấu hình, kết nối MongoDB, mở API
+│   │   ├── app.js               # Các endpoint HTTP
+│   │   ├── domain.js            # Validate dữ liệu, gộp thực thể BIO
+│   │   ├── orders.js            # Nghiệp vụ + repository MongoDB
+│   │   └── ner.js               # Quản lý worker Python và hàng đợi
+│   ├── ner/worker.py            # Gọi code NER hiện có qua JSON-lines
+│   ├── tests/orders.test.js
+│   └── requirements-inference.txt
 ├── scripts/
-│   └── seed_demo.py                   # Tạo dữ liệu mẫu trên database local
-├── .gitignore                         # Bỏ qua môi trường, cache, secrets
-├── docker-compose.yml                 # Tùy chọn, bổ sung khi cần
+│   ├── prepare_ner.py           # Chuẩn bị đúng tài nguyên suy luận cần dùng
+│   └── check-ner.js             # Kiểm tra NER độc lập, không đọc credentials
+├── docs/order-contract.md       # Hợp đồng dữ liệu/API dùng chung
+├── playwright.config.js        # Dùng Edge có sẵn, không tải browser riêng
 └── README.md
 ```
 
-Chỉ tạo thư mục/file khi có phần triển khai tương ứng. Tái sử dụng code và model NER hiện có qua cấu hình/import; không sao chép sang từng module.
+`node_modules/`, `.cache/`, `frontend/dist/` và kết quả test sinh ra tại máy, không commit.
 
-## Phân công full stack
+## 2. Thao tác lần lượt trên Windows / PowerShell
 
-| Phụ trách | Module | Nhiệm vụ xuyên suốt |
-| --- | --- | --- |
-| Người A | Manage | UI nhập đơn → API gọi NER → sửa/xác nhận kết quả → lưu đơn và theo dõi trạng thái |
-| Người B | Kitchen | UI danh sách đơn → API nhận chế biến → lưu trạng thái sẵn sàng |
-| Người B | Delivery | UI đơn chờ giao → API nhận giao → lưu kết quả giao hàng |
-| Người A và người B | Phần dùng chung | Thống nhất schema/API, bố cục, cấu hình, review chéo và kiểm tra toàn luồng |
+### Bước 1 — vào đúng thư mục, kiểm tra môi trường
 
-Mỗi người làm cả frontend, backend và thao tác dữ liệu của module mình. Các module xử lý cùng một đơn hàng theo ID, không tạo bản sao riêng cho bếp hoặc giao hàng.
-
-## Ý tưởng thực hiện
-
-1. Chốt `docs/order-contract.md`: trường dữ liệu, request/response API, trạng thái và quyền chuyển trạng thái của từng module.
-2. Dựng luồng nhỏ: tạo đơn → lưu database → Kitchen thấy đơn. Chuẩn bị dữ liệu mẫu để mỗi người tự chạy mà không cần người còn lại online.
-3. Phát triển các module theo hợp đồng đã chốt. Kết quả NER là bản nháp để kiểm tra/sửa trước khi xác nhận chuyển cho bếp.
-4. Backend kiểm tra và cập nhật có điều kiện theo trạng thái hiện tại để tránh xử lý trùng. Các trang lấy trạng thái từ backend; ban đầu tự làm mới định kỳ, bổ sung cập nhật tức thời khi cần.
-
-Luồng ban đầu:
-
-```text
-DRAFT → CONFIRMED → PREPARING → READY → DELIVERING → DELIVERED
-     Manage             Kitchen               Delivery
+```powershell
+cd D:\PPJ\food_extraction\vietnamese-food-order-ner\system
+node --version
+npm --version
+..\..\env\Scripts\python.exe --version
+java -version
 ```
 
-Thống nhất các trường hợp hủy/giao thất bại trước khi bổ sung. Quy tắc đơn hàng nằm trong `order_service.py`, tránh viết lặp ở từng router.
+Dùng Node.js từ 22.12 trở lên và Java 64-bit để chạy VnCoreNLP. Môi trường Python hiện có được dùng trực tiếp, không cần activate hoặc tạo môi trường thứ hai. Máy khác có thể tạo một môi trường riêng rồi cấu hình `PYTHON_EXECUTABLE`.
 
-## Làm việc bất đồng bộ qua Git
+### Bước 2 — cài package một lần tại `system/`
 
-1. Lấy `main` mới nhất, tạo nhánh cho một việc nhỏ, ví dụ `feat/manage-create-order` hoặc `feat/kitchen-order-status`.
-2. Viết code, tự kiểm tra, commit và push nhánh; mở pull request (PR).
-3. Người còn lại review khi có thời gian. PR ghi ngắn gọn: **đã làm gì, cách chạy thử, ảnh hưởng API/schema, phần còn thiếu**.
-4. Sửa theo review, kiểm tra và merge vào `main`. Đồng bộ `main` trước việc tiếp theo; cập nhật thêm thay đổi từ `main` nếu nhánh đang làm kéo dài.
+```powershell
+npm ci
+..\..\env\Scripts\python.exe -m pip install -r backend/requirements-inference.txt
+```
 
-Người review có thể sửa và push cùng nhánh sau khi trao đổi trên PR; không force-push nhánh dùng chung. Có thể tiếp tục việc độc lập khi chờ review; ghi rõ nếu phụ thuộc PR chưa merge. Thay đổi API/schema phải cập nhật hợp đồng cùng code và thông báo phần bị ảnh hưởng.
+`npm ci` dùng lockfile đã có. Nếu máy đã cài và dependencies không đổi thì bỏ qua bước này; không chạy lại sau mỗi lần pull. Không chạy `npm install` riêng trong frontend và backend.
 
-## Giữ tài nguyên gọn gàng
+| Package | Mục đích |
+| --- | --- |
+| react, react-dom | Giao diện |
+| express, mongodb | API và MongoDB Driver |
+| vite, @vitejs/plugin-react | Chạy dev/build frontend |
+| tailwindcss, @tailwindcss/vite | CSS và căn chỉnh |
+| @playwright/test | Kiểm tra thao tác UI bằng Edge đã có |
+| torch, transformers, py_vncorenlp | Suy luận NER bằng Python |
 
-- Mỗi máy có một `node_modules` cho frontend và một môi trường Python cho backend/NER nếu dependencies tương thích; không tạo môi trường riêng cho từng trang. Backend chỉ cần dependencies phục vụ suy luận, không mặc định cài toàn bộ công cụ huấn luyện.
-- Model/cache NER nằm ở một vị trí được cấu hình cho mỗi môi trường chạy. Nạp model khi khởi động tiến trình phục vụ NER, tránh tải/nạp lại theo từng request; nhiều worker có thể nhân bộ nhớ model nên chỉ tăng khi cần.
-- Commit file khai báo dependencies và lockfile. Thêm package phải cập nhật các file liên quan cùng PR và nêu mục đích; tránh nhiều thư viện giải quyết cùng một việc.
-- Thống nhất npm cho frontend; dùng `npm ci` để thiết lập/đồng bộ theo lockfile. Chỉ đồng bộ dependencies khi cần, không xóa/cài lại môi trường sau mỗi lần pull.
-- Không commit `node_modules`, `.venv`, `.env`, cache, log hoặc model nặng vào Git thông thường. Giữ `.env.example` và hướng dẫn lấy model để dựng lại môi trường.
-- Mỗi người dùng database local riêng, cùng schema và dữ liệu mẫu; database triển khai dùng chung cho cả ba trang.
-- Khi có bộ khung, bổ sung lệnh cài đặt, chạy ứng dụng, tạo dữ liệu mẫu và kiểm tra vào README. Docker Compose là tùy chọn ở giai đoạn đầu.
+Không cài lại `requirements.txt` ở gốc chỉ để chạy web: file đó còn chứa dependencies huấn luyện không cần ở đây.
+
+### Bước 3 — chuẩn bị model một lần
+
+Nếu chưa có model và VnCoreNLP:
+
+```powershell
+..\..\env\Scripts\python.exe scripts/prepare_ner.py
+```
+
+Script chỉ tải JAR và hai file word segmentation của VnCoreNLP vào `system/.cache/vncorenlp`. PhoBERT dùng cache Hugging Face hiện có; không tạo bản sao theo trang. File đã có được tái sử dụng. Đây là bước cần mạng; gọi API mặc định chỉ dùng model local.
+
+Nếu đã có VnCoreNLP ở nơi khác, dùng đường dẫn đó khi chuẩn bị và trong cấu hình:
+
+```powershell
+..\..\env\Scripts\python.exe scripts/prepare_ner.py --vncorenlp-dir D:\models\vncorenlp
+```
+
+Không cần chạy script nếu toàn bộ tài nguyên đã sẵn sàng. Có thể đặt `NER_MODEL` thành đường dẫn tuyệt đối tới checkpoint local thay cho model ID trên Hub.
+
+### Bước 4 — cấu hình tại máy, không push thông tin bí mật
+
+Tạo cấu hình local khi chưa có:
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+Tự chỉnh `system/.env`:
+
+```dotenv
+MONGODB_URI=
+MONGODB_DB=food_orders_dev
+PORT=3001
+PYTHON_EXECUTABLE=../../env/Scripts/python.exe
+VNCORENLP_DIR=.cache/vncorenlp
+NER_MODEL=CS221DoAn/vietnamese_food_order_extraction
+NER_LOCAL_FILES_ONLY=true
+```
+
+Có hai cách cung cấp connection string:
+
+- Tự điền `MONGODB_URI` trong `.env` local.
+- Giữ credentials ở `D:\PPJ\food_extraction\atlas-credentials.env`, rồi tự chạy Node với `--env-file` ở bước 5. Code không tự tìm hoặc đọc file credentials bên ngoài. Nếu tên biến chứa URI khác `MONGODB_URI`, đặt `MONGODB_URI_ENV` bằng **tên biến đó**. Cần URI `mongodb://` hoặc `mongodb+srv://`, không phải Atlas API key.
+
+Không gửi URI vào chat/PR. Các biến MongoDB chỉ ở backend, không đặt tiền tố `VITE_`. Đường dẫn Python/VnCoreNLP trong `.env` tính từ `system/`. Nếu đổi port API, cập nhật proxy trong `vite.config.js` cho khớp.
+
+Mỗi người dùng database phát triển riêng để tránh thay đổi đơn của nhau; cùng dùng schema và code. Khi chạy một bản ứng dụng chung, ba trang dùng chung database đó.
+
+### Bước 5 — chạy backend, rồi frontend
+
+**Terminal 1**, đứng ở `system/`, khi URI đã nằm trong `.env` hoặc biến môi trường:
+
+```powershell
+npm run dev:api
+```
+
+Nếu tự nạp file credentials bên ngoài, dùng lệnh này **thay cho** lệnh trên:
+
+```powershell
+node --env-file=../../atlas-credentials.env --watch backend/src/server.js
+```
+
+Nếu tên biến URI khác, đặt tên biến trước khi chạy, ví dụ:
+
+```powershell
+$env:MONGODB_URI_ENV = "TEN_BIEN_CHUA_CONNECTION_STRING"
+```
+
+Backend chạy tại `http://127.0.0.1:3001`. Chưa có cấu hình/kết nối MongoDB thì backend báo lỗi và dừng, không tự dùng database giả.
+
+**Terminal 2**, cũng đứng ở `system/`:
+
+```powershell
+npm run dev
+```
+
+Mở địa chỉ Vite in trong terminal, thường là `http://127.0.0.1:5173`. Frontend gọi `/api` qua proxy; không cần thêm package CORS. Dừng từng tiến trình bằng `Ctrl+C`.
+
+### Bước 6 — kiểm tra logic trước khi chỉnh UI
+
+```powershell
+npm test
+npm run build
+npm run test:ui
+npm run check:ner
+```
+
+- `npm test`: validate, lưu/sửa, chống xác nhận trùng, chặn trạng thái/phiên bản xung đột và luồng HTTP; dùng repository trong bộ nhớ của test, không kiểm tra Atlas thật.
+- `npm run build`: kiểm tra build frontend.
+- `npm run test:ui`: kiểm tra thao tác bằng Edge headless với API giả riêng; không dùng MongoDB hoặc model thật, không tải browser mới.
+- `npm run check:ner`: gọi model thật, độc lập với MongoDB; đọc cấu hình từ biến môi trường và các đường dẫn mặc định, không tự đọc `.env` hay file credentials. Với đường dẫn khác, export `PYTHON_EXECUTABLE`, `VNCORENLP_DIR`, `NER_MODEL` trước khi chạy.
+
+Sau đó kiểm tra trực tiếp với backend/model/MongoDB thật:
+
+1. Gửi `2 phần cơm gà giao khu A số điện thoại 0901234567`.
+2. Kiểm tra các ô thực thể, chỉnh nội dung; thêm hoặc xóa thực thể nếu model nhận thiếu/sai.
+3. Gửi thêm yêu cầu trong cùng hội thoại. Mỗi kết quả phải có cặp **Discard / Confirm riêng**.
+4. Discard một kết quả: bỏ đúng cặp yêu cầu/kết quả đó. Các kết quả khác giữ nguyên.
+5. Confirm: lưu đơn **Chờ nấu**, đưa lên đầu danh sách. Cần có ít nhất một `FOOD` và không có ô thực thể rỗng.
+6. Tạo đơn khác, rồi bấm bút chì ở đơn cũ: hội thoại và thực thể đã lưu được nạp lại. Sửa và Confirm cập nhật **cùng mã đơn**, đưa đơn lên đầu.
+7. Tải lại trình duyệt và mở đơn để kiểm tra dữ liệu đã lưu thật. Bản nháp chưa Confirm không được lưu khi tải lại trang.
+8. Khi backend ghi trạng thái `PREPARING`, Manage chỉ cho xem. Kiểm tra này đã có trong test; chưa có UI Kitchen để chuyển trạng thái.
+
+## 3. Quy tắc Manage đã triển khai
+
+- Thanh trên có Manage/Kitchen/Delivery. Chuyển tab không làm mất bản nháp trong phiên đang mở.
+- Ô nhập nằm dưới khu vực hội thoại; micro bị vô hiệu hóa và có nhãn giữ chỗ. Nút gửi mũi tên nằm ngoài ô nhập. Hỗ trợ `Ctrl+Enter`.
+- Kết quả NER gộp nhãn BIO thành thực thể, mỗi ô có tên nhãn và màu pastel. Có thể sửa, thêm hoặc xóa thực thể trước khi xác nhận.
+- Mỗi hội thoại tương ứng một đơn. Confirm một kết quả chọn bộ thực thể của kết quả đó làm nội dung đơn; không tự cộng dồn các kết quả khác. Lịch sử hiện còn trong hội thoại được lưu cùng đơn.
+- Discard xóa cặp yêu cầu/kết quả khỏi bản nháp, không xóa đơn đã lưu trong database. Các sửa đổi chỉ được lưu khi Confirm một kết quả còn lại.
+- Danh sách ưu tiên `PHONE`, `PLACE`; tối đa năm thực thể trên mỗi thẻ, nội dung dài rút gọn và hiện đầy đủ qua tooltip. Mỗi lần lấy 50 đơn, có nút xem thêm.
+- Đơn mới và đơn vừa sửa Confirm lên đầu. Danh sách tự cập nhật mỗi 5 giây, có nút làm mới thủ công.
+- Chỉ sửa khi `status = WAITING`. API ghi có điều kiện theo cả status và version để tránh ghi đè khi hai người sửa hoặc bếp vừa nhận đơn.
+- Gửi lại cùng lần Confirm sau lỗi mạng không tạo thêm đơn. Khi xung đột, tải lại bản đã lưu rồi sửa tiếp.
+- Giới hạn 1.000 ký tự/yêu cầu, 20 kết quả/hội thoại, 100 thực thể/kết quả. Nếu vượt giới hạn token của model, API yêu cầu rút gọn thay vì âm thầm cắt đơn.
+
+## 4. Phân công và thứ tự phát triển tiếp
+
+| Phụ trách | Phạm vi full stack |
+| --- | --- |
+| Người A | Manage: UI, API phân tích/xác nhận/sửa, dữ liệu và test |
+| Người B | Kitchen và Delivery: UI, API nghiệp vụ, dữ liệu và test khi triển khai các module này |
+| Người A và người B | Hợp đồng đơn hàng, phần dùng chung, review chéo, kiểm tra luồng xuyên suốt |
+
+Thứ tự làm việc: **cài đúng dependencies → chốt hợp đồng dữ liệu → viết nghiệp vụ/API và test → nối UI tối giản → kiểm tra luồng thật → tối ưu UI cuối cùng**.
+
+Làm bất đồng bộ qua Git:
+
+1. Lấy `main` mới nhất, tạo nhánh cho một việc nhỏ, ví dụ `feat/manage-edit-order`.
+2. Viết code và kiểm tra, commit, push nhánh, mở PR. Không cần chờ người còn lại online.
+3. PR ghi: đã làm gì, cách thử, ảnh hưởng API/schema và phần còn thiếu. Người còn lại review khi có thời gian.
+4. Sửa theo review, kiểm tra rồi merge. Nếu reviewer sửa trực tiếp cùng nhánh thì trao đổi trước; không force-push nhánh dùng chung.
+5. Đồng bộ `main` trước công việc tiếp theo. Chỉ chạy lại bước cài khi dependencies thay đổi. Có thể làm phần độc lập trong lúc chờ review.
+
+Thêm package phải có mục đích rõ ràng và commit cả manifest/lockfile. Không tạo project React/Node hoặc bản sao model riêng cho Kitchen/Delivery. Khi nghiệp vụ mở rộng mới tách thêm router/service, không dựng thư mục rỗng trước.
+
+Tham khảo triển khai: [Tailwind với Vite](https://tailwindcss.com/docs/installation/using-vite), [MongoDB compound operations](https://www.mongodb.com/docs/drivers/node/current/crud/compound-operations/).

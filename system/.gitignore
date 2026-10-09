@@ -1,0 +1,10 @@
+node_modules/
+frontend/dist/
+.env
+.env.*
+!.env.example
+.cache/
+*.log
+__pycache__/
+*.pyc
+test-results/

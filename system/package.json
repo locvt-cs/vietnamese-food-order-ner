@@ -1,0 +1,32 @@
+{
+  "name": "food-order-system",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:api": "node --watch backend/src/server.js",
+    "start:api": "node backend/src/server.js",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --test backend/tests/*.test.js",
+    "test:ui": "playwright test",
+    "check:ner": "node scripts/check-ner.js"
+  },
+  "dependencies": {
+    "express": "5.2.1",
+    "mongodb": "7.7.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@vitejs/plugin-react": "6.1.2",
+    "tailwindcss": "4.3.3",
+    "vite": "8.3.4"
+  }
+}
