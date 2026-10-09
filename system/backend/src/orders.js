@@ -1,7 +1,22 @@
 import { AppError, WAITING } from './domain.js';
+import { BSON } from 'mongodb';
 
 export class OrderService {
   constructor(repository) { this.repository = repository; }
+  async remove(id, expectedVersion) {
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+      throw new AppError(400, 'Phiên bản đơn cần xóa không hợp lệ.');
+    }
+    const existing = await this.repository.get(id);
+    if (!existing) return; // A repeated delete after a lost response is safe.
+    if (existing.status !== WAITING || existing.version !== expectedVersion) {
+      throw new AppError(409, 'Đơn đã đổi trạng thái hoặc được sửa ở nơi khác. Hãy tải lại trước khi xóa.');
+    }
+    if (await this.repository.remove(id, expectedVersion)) return;
+    if (await this.repository.get(id)) {
+      throw new AppError(409, 'Đơn vừa được thay đổi. Chưa xóa đơn; hãy tải lại danh sách.');
+    }
+  }
   async confirm(id, data) {
     const existing = await this.repository.get(id);
     // An identical retry returns the original result, never creates another order.
@@ -14,6 +29,9 @@ export class OrderService {
     const now = new Date();
     const next = { ...fields, id, status: WAITING, version: expectedVersion + 1,
       createdAt: existing?.createdAt ?? now, updatedAt: now };
+    if (BSON.calculateObjectSize({ ...next, _id: id }) >= 16 * 1024 * 1024) {
+      throw new AppError(413, 'Nội dung và lịch sử đơn vượt dung lượng lưu trữ. Hãy tách thành các đơn nhỏ hơn.');
+    }
     const saved = await this.repository.save(next, expectedVersion);
     if (saved) return saved;
     const concurrent = await this.repository.get(id);
@@ -32,6 +50,10 @@ export class MongoOrderRepository {
   constructor(collection) { this.collection = collection; }
   async initialize() { await this.collection.createIndex({ updatedAt: -1, _id: -1 }); }
   get(id) { return this.collection.findOne({ _id: id }); }
+  async remove(id, expectedVersion) {
+    const result = await this.collection.deleteOne({ _id: id, status: WAITING, version: expectedVersion });
+    return result.deletedCount === 1;
+  }
   async list(page = 0) {
     const items = await this.collection.find({}, { projection: { history: 0, digest: 0, confirmationId: 0 } })
       .sort({ updatedAt: -1, _id: -1 }).skip(page * 50).limit(51).toArray();

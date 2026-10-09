@@ -15,8 +15,8 @@ export function validateId(id) {
   return id;
 }
 export function validateText(text) {
-  requireValue(typeof text === 'string' && text.trim().length > 0 && text.length <= 1000,
-    'Nội dung đơn phải có từ 1 đến 1.000 ký tự.');
+  requireValue(typeof text === 'string' && text.trim().length > 0,
+    'Nội dung đơn không được để trống.');
   return text.trim();
 }
 export function validateConfirmation(body) {
@@ -34,7 +34,7 @@ export function validateConfirmation(body) {
     requireValue(!ids.has(id), 'Kết quả bị trùng mã.');
     ids.add(id);
     const request = validateText(item.request);
-    requireValue(Array.isArray(item.entities) && item.entities.length <= 100, 'Danh sách thực thể không hợp lệ.');
+    requireValue(Array.isArray(item.entities), 'Danh sách thực thể không hợp lệ.');
     const entityIds = new Set();
     const entities = item.entities.map((entity) => {
       requireValue(entity && typeof entity === 'object', 'Thực thể không hợp lệ.');
@@ -42,8 +42,8 @@ export function validateConfirmation(body) {
       requireValue(!entityIds.has(entityId), 'Thực thể bị trùng mã.');
       entityIds.add(entityId);
       requireValue(LABELS.includes(entity.label), 'Nhãn thực thể không hợp lệ.');
-      requireValue(typeof entity.text === 'string' && entity.text.trim().length > 0 && entity.text.length <= 500,
-        'Thực thể phải có từ 1 đến 500 ký tự.');
+      requireValue(typeof entity.text === 'string' && entity.text.trim().length > 0,
+        'Thực thể không được để trống.');
       return { id: entityId, label: entity.label, text: entity.text.trim() };
     });
     return { id, request, entities };

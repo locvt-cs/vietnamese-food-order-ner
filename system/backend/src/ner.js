@@ -31,9 +31,8 @@ export class NerService {
           const result = JSON.parse(line);
           const pending = this.pending; this.pending = null;
           clearTimeout(pending.timer);
-          if (result.error) pending.reject(new AppError(result.code === 'TEXT_TOO_LONG' ? 400 : 503,
-            result.code === 'TEXT_TOO_LONG' ? 'Nội dung vượt giới hạn token của model. Hãy rút gọn đơn.' :
-              'Không chạy được model. Kiểm tra Python, Java, VNCORENLP_DIR và model đã tải.'));
+          if (result.error) pending.reject(new AppError(503,
+            'Không chạy được model. Kiểm tra Python, Java, VNCORENLP_DIR và model đã tải.'));
           else pending.resolve(result.tokens);
         } catch { this.stop(); }
       });
@@ -42,7 +41,7 @@ export class NerService {
       child.stdin.on('error', () => { if (this.child === child) this.stop(); });
     }
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => this.stop(), 120_000);
+      const timer = setTimeout(() => this.stop(), 600_000);
       this.pending = { resolve, reject, timer };
       this.child.stdin.write(`${JSON.stringify({ text })}\n`);
     });

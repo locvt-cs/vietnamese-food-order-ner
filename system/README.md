@@ -152,6 +152,15 @@ $env:MONGODB_URI_ENV = "TEN_BIEN_CHUA_CONNECTION_STRING"
 
 Backend chạy tại `http://127.0.0.1:3001`. Chưa có cấu hình/kết nối MongoDB thì backend báo lỗi và dừng, không tự dùng database giả.
 
+Nếu gặp `[MONGO_DNS]` và DNS của mạng không tra cứu được cluster Atlas công khai, có thể dùng DNS riêng cho backend trong terminal đó:
+
+```powershell
+$env:MONGODB_DNS_SERVERS = "1.1.1.1,8.8.8.8"
+node --env-file=../../atlas-credentials.env --watch backend/src/server.js
+```
+
+Tùy chọn này chỉ tác động các truy vấn DNS của tiến trình Node, không thay đổi DNS Windows và không gửi credentials tới DNS. Để lưu cấu hình, tự thêm `MONGODB_DNS_SERVERS=1.1.1.1,8.8.8.8` vào file env đang dùng. Để quay lại DNS mặc định, bỏ biến đó khỏi file và terminal (`Remove-Item Env:MONGODB_DNS_SERVERS -ErrorAction SilentlyContinue`), rồi khởi động lại. Chỉ dùng DNS công khai cho cluster công khai; hostname nội bộ cần DNS của mạng nội bộ.
+
 **Terminal 2**, cũng đứng ở `system/`:
 
 ```powershell
@@ -167,12 +176,14 @@ npm test
 npm run build
 npm run test:ui
 npm run check:ner
+..\..\env\Scripts\python.exe -X utf8 -m unittest discover -s backend/tests -p test_long_inference.py -v
 ```
 
 - `npm test`: validate, lưu/sửa, chống xác nhận trùng, chặn trạng thái/phiên bản xung đột và luồng HTTP; dùng repository trong bộ nhớ của test, không kiểm tra Atlas thật.
 - `npm run build`: kiểm tra build frontend.
 - `npm run test:ui`: kiểm tra thao tác bằng Edge headless với API giả riêng; không dùng MongoDB hoặc model thật, không tải browser mới.
 - `npm run check:ner`: gọi model thật, độc lập với MongoDB; đọc cấu hình từ biến môi trường và các đường dẫn mặc định, không tự đọc `.env` hay file credentials. Với đường dẫn khác, export `PYTHON_EXECUTABLE`, `VNCORENLP_DIR`, `NER_MODEL` trước khi chạy.
+- `npm run check:ner -- --long`: kiểm tra model thật với đơn dài hơn 1.000 ký tự, bảo đảm token số điện thoại ở cuối vẫn có trong kết quả. Bộ unittest Python kiểm tra ghép cửa sổ không mất/lặp từ, kể cả một từ dài hơn cửa sổ model; không tải tài nguyên mới.
 
 Sau đó kiểm tra trực tiếp với backend/model/MongoDB thật:
 
@@ -189,14 +200,16 @@ Sau đó kiểm tra trực tiếp với backend/model/MongoDB thật:
 
 - Thanh trên có Manage/Kitchen/Delivery. Chuyển tab không làm mất bản nháp trong phiên đang mở.
 - Ô nhập nằm dưới khu vực hội thoại; micro bị vô hiệu hóa và có nhãn giữ chỗ. Nút gửi mũi tên nằm ngoài ô nhập. Hỗ trợ `Ctrl+Enter`.
-- Kết quả NER gộp nhãn BIO thành thực thể, mỗi ô có tên nhãn và màu pastel. Có thể sửa, thêm hoặc xóa thực thể trước khi xác nhận.
+- Kết quả NER gộp nhãn BIO thành thực thể, mỗi ô có tên nhãn và màu pastel. Ô tự co giãn theo nội dung, xuống dòng khi chạm chiều rộng khung; có thể sửa, thêm hoặc xóa thực thể trước khi xác nhận.
 - Mỗi hội thoại tương ứng một đơn. Confirm một kết quả chọn bộ thực thể của kết quả đó làm nội dung đơn; không tự cộng dồn các kết quả khác. Lịch sử hiện còn trong hội thoại được lưu cùng đơn.
 - Discard xóa cặp yêu cầu/kết quả khỏi bản nháp, không xóa đơn đã lưu trong database. Các sửa đổi chỉ được lưu khi Confirm một kết quả còn lại.
-- Danh sách ưu tiên `PHONE`, `PLACE`; tối đa năm thực thể trên mỗi thẻ, nội dung dài rút gọn và hiện đầy đủ qua tooltip. Mỗi lần lấy 50 đơn, có nút xem thêm.
+- Thẻ đơn mặc định chỉ hiện `Phone`, `Place` với nội dung nằm trong ô màu nhỏ. Bấm thẻ để mở rộng toàn bộ thực thể, bấm lần nữa để thu gọn; bút chì mở hội thoại để sửa. Mỗi lần lấy 50 đơn, có nút xem thêm.
+- Nút thùng rác cạnh bút chì xóa đơn đã lưu sau khi xác nhận. Bản nháp trống hoặc đã có nội dung cũng có nút xóa; khi xóa bản nháp cuối, giao diện chuyển về trạng thái chưa chọn đơn. Xóa đơn đã lưu chỉ được phép khi còn `WAITING` và version khớp; xóa thành công gỡ cả nội dung/lịch sử khỏi MongoDB, không thể hoàn tác.
 - Đơn mới và đơn vừa sửa Confirm lên đầu. Danh sách tự cập nhật mỗi 5 giây, có nút làm mới thủ công.
 - Chỉ sửa khi `status = WAITING`. API ghi có điều kiện theo cả status và version để tránh ghi đè khi hai người sửa hoặc bếp vừa nhận đơn.
 - Gửi lại cùng lần Confirm sau lỗi mạng không tạo thêm đơn. Khi xung đột, tải lại bản đã lưu rồi sửa tiếp.
-- Giới hạn 1.000 ký tự/yêu cầu, 20 kết quả/hội thoại, 100 thực thể/kết quả. Nếu vượt giới hạn token của model, API yêu cầu rút gọn thay vì âm thầm cắt đơn.
+- Không đặt giới hạn số từ/ký tự trên ô nhập, nội dung thực thể hoặc số thực thể. Văn bản dài được xử lý qua cửa sổ 254 subword, chồng lặp 32 subword và ghép theo vị trí gốc; mỗi từ chỉ trả về một lần, không cắt mất đuôi đơn. Kết quả ở ranh giới vẫn cần người dùng kiểm tra như các dự đoán NER khác.
+- Các giới hạn kỹ thuật còn lại: 20 kết quả/hội thoại, 8 MiB cho một HTTP request, document MongoDB dưới 16 MiB và thời gian xử lý model tối đa 10 phút/yêu cầu. Đây là giới hạn dung lượng/tài nguyên, không phải bộ đếm số từ; khi vượt sẽ báo lỗi rõ ràng.
 
 ## 4. Phân công và thứ tự phát triển tiếp
 

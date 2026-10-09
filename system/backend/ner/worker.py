@@ -25,15 +25,9 @@ def analyze(text):
             model, tokenizer, device = load_model(os.environ.get("NER_MODEL") or None)
             segmenter = py_vncorenlp.VnCoreNLP(annotators=["wseg"], save_dir=str(directory))
             resources = (segmenter, model, tokenizer, device)
-        from food_ner.config import MAX_LEN
-        from food_ner.preprocessing import preprocess
-        from food_ner.inference import predict
+        from food_ner.inference import predict_long
         segmenter, model, tokenizer, device = resources
-        tokens = preprocess(text, segmenter)
-        size = sum(len(tokenizer.encode(token, add_special_tokens=False)) for token in tokens)
-        if size > MAX_LEN - 2:
-            return {"error": True, "code": "TEXT_TOO_LONG"}
-        return {"tokens": predict(text, model, tokenizer, segmenter, device)}
+        return {"tokens": predict_long(text, model, tokenizer, segmenter, device)}
 
 
 for line in sys.stdin:

@@ -9,7 +9,15 @@ const ner = new NerService({
   model: process.env.NER_MODEL || 'CS221DoAn/vietnamese_food_order_extraction', localOnly: true,
 });
 try {
-  const results = await ner.predict('2 phần cơm gà giao khu A số điện thoại 0901234567');
-  console.log(JSON.stringify(groupEntities(results), null, 2));
+  const long = process.argv.includes('--long');
+  const text = long
+    ? '2 phần cơm gà giao khu A, ít cay. '.repeat(60) + 'Giao khu B, số điện thoại 0987654321'
+    : '2 phần cơm gà giao khu A số điện thoại 0901234567';
+  const results = await ner.predict(text);
+  if (long) {
+    if (!results.some((item) => item.token === '0987654321')) throw new Error('Long-input check failed: missing final phone token.');
+    console.log(`Long-input check OK: ${text.length} characters, ${results.length} tokens, final phone preserved.`);
+    console.log(JSON.stringify(groupEntities(results).slice(-5), null, 2));
+  } else console.log(JSON.stringify(groupEntities(results), null, 2));
 } catch (error) { console.error(error.message); process.exitCode = 1; }
 finally { ner.close(); }

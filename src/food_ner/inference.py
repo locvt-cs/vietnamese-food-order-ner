@@ -83,6 +83,45 @@ def predict(text, model, tokenizer, segmenter, device):
     return results
 
 
+def predict_long(text, model, tokenizer, segmenter, device, overlap=32):
+    """Infer every word using overlapping windows; never truncate long orders.
+
+    Each word is emitted once in source order. For words seen in two windows,
+    use the prediction with more context on both sides. Even a single word
+    longer than one window is preserved in full in the output.
+    """
+    tokens = preprocess(text, segmenter)
+    if not tokens:
+        return []
+    capacity = MAX_LEN - 2
+    if not 0 <= overlap < capacity:
+        raise ValueError("overlap must be smaller than the window capacity")
+    input_ids, word_starts = [], {}
+    for index, word in enumerate(tokens):
+        word_starts[len(input_ids)] = index
+        input_ids.extend(tokenizer.encode(word, add_special_tokens=False) or [tokenizer.unk_token_id])
+
+    predictions = {}
+    step = capacity - overlap
+    for start in range(0, len(input_ids), step):
+        end = min(start + capacity, len(input_ids))
+        window = [tokenizer.cls_token_id, *input_ids[start:end], tokenizer.sep_token_id]
+        with torch.no_grad():
+            ids = model(torch.tensor([window]).to(device)).logits.argmax(dim=-1)[0].tolist()
+        for position in range(start, end):
+            word_index = word_starts.get(position)
+            if word_index is None:
+                continue
+            context = min(position - start, end - 1 - position)
+            if word_index not in predictions or context > predictions[word_index][0]:
+                label_id = ids[position - start + 1]
+                label = model.config.id2label.get(str(label_id), model.config.id2label.get(label_id, "O"))
+                predictions[word_index] = (context, label)
+        if end == len(input_ids):
+            break
+    return [{"token": word, "label": predictions[index][1]} for index, word in enumerate(tokens)]
+
+
 def format_prediction(results):
     """Format kết quả predict thành bảng token | label.
 

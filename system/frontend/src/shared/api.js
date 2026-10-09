@@ -1,6 +1,6 @@
 export async function api(path, options = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), path === '/analyze' ? 130_000 : 15_000);
+  const timeout = setTimeout(() => controller.abort(), path === '/analyze' ? 650_000 : 15_000);
   try {
     const response = await fetch(`/api${path}`, {
       ...options, signal: controller.signal,

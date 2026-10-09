@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 async function fixture(page) {
   const store = new Map();
-  const state = { failAnalyze: false };
+  const state = { failAnalyze: false, failDelete: false };
   let timestamp = Date.now();
   await page.route('**/api/**', async (route) => {
     const request = route.request();
@@ -26,6 +26,10 @@ async function fixture(page) {
     if (request.method() === 'GET') return reply(store.get(id));
     const old = store.get(id);
     if (old && (old.status !== 'WAITING' || old.version !== body.expectedVersion)) return reply({ message: 'Đơn đã đổi trạng thái hoặc được sửa ở nơi khác. Hãy mở lại đơn.' }, 409);
+    if (request.method() === 'DELETE') {
+      if (state.failDelete) return reply({ message: 'Không thể xóa đơn lúc này.' }, 500);
+      store.delete(id); return reply({ deleted: true });
+    }
     const saved = { id, history: body.history, selectedResultId: body.selectedResultId,
       entities: body.history.find((item) => item.id === body.selectedResultId).entities,
       version: body.expectedVersion + 1, status: 'WAITING', updatedAt: new Date(++timestamp).toISOString() };
@@ -59,10 +63,13 @@ test('multiple results have their own controls; editing, confirming and reopenin
   const saved = [...store.values()][0];
   expect(saved.entities[0].text).toBe('cơm vịt');
   const card = page.getByRole('complementary').getByRole('article').first();
-  await expect(card.locator('dt').first()).toHaveText('PHONE');
-  await expect(card.locator('dt').nth(1)).toHaveText('PLACE');
-  await expect(card.locator('dt')).toHaveCount(5);
-  await expect(card.getByText('+1 thực thể khác')).toBeVisible();
+  await expect(card.locator('dt').first()).toHaveText('Phone:');
+  await expect(card.locator('dt').nth(1)).toHaveText('Place:');
+  await expect(card.locator('dt')).toHaveCount(2);
+  await card.getByRole('button', { name: /^Mở rộng đơn/ }).click();
+  await expect(card.locator('dt')).toHaveCount(6);
+  await card.getByRole('button', { name: /^Thu gọn đơn/ }).click();
+  await expect(card.locator('dt')).toHaveCount(2);
   await page.getByRole('button', { name: 'Đơn mới', exact: true }).click();
   await page.getByRole('button', { name: `Sửa đơn ${saved.id.slice(0, 8)}` }).click();
   await expect(first.getByRole('textbox', { name: 'FOOD', exact: true })).toHaveValue('cơm vịt');
@@ -94,6 +101,67 @@ test('newest confirmation goes first; status change rejects stale edit and locks
   await expect(page.getByText('Đơn đã rời trạng thái chờ nấu, chỉ có thể xem.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Confirm', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: `Sửa đơn ${firstId.slice(0, 8)}` })).toBeDisabled();
+  await expect(page.getByRole('button', { name: `Xóa đơn ${firstId.slice(0, 8)}` })).toBeDisabled();
+});
+
+test('deleting saved orders requires confirmation, handles failure, and removes the active chat', async ({ page }) => {
+  const { store, state } = await fixture(page);
+  await send(page);
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByText('Chờ nấu · Phiên bản 1')).toBeVisible();
+  const id = [...store.keys()][0];
+  const trash = page.getByRole('button', { name: `Xóa đơn ${id.slice(0, 8)}` });
+  await trash.click();
+  let dialog = page.getByRole('dialog', { name: 'Xác nhận xóa?' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Hủy', exact: true }).click();
+  expect(store.size).toBe(1);
+  await trash.click(); state.failDelete = true;
+  await dialog.getByRole('button', { name: 'Xóa', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Không thể xóa đơn lúc này.');
+  expect(store.size).toBe(1);
+  state.failDelete = false;
+  await dialog.getByRole('button', { name: 'Xóa', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('complementary').getByRole('article')).toHaveCount(0);
+  await expect(page.getByText('Chọn một đơn hoặc tạo đơn mới để tiếp tục.')).toBeVisible();
+  expect(store.size).toBe(0);
+  await page.reload();
+  await expect(page.getByRole('complementary').getByRole('article')).toHaveCount(0);
+});
+
+test('empty and populated drafts can be deleted; edit and trash are separate actions', async ({ page }) => {
+  await fixture(page);
+  await page.getByRole('button', { name: 'Xóa bản nháp 1', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Xóa', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Xóa bản nháp 1', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Đơn mới', exact: true }).click();
+  await send(page);
+  await expect(page.getByRole('button', { name: 'Sửa bản nháp 1', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Xóa bản nháp 1', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Xóa', exact: true }).click();
+  await expect(page.getByRole('article', { name: 'Kết quả 1', exact: true })).toHaveCount(0);
+});
+
+test('long requests are not truncated; entity editors grow and shrink without overflow', async ({ page }) => {
+  await fixture(page);
+  const text = '2 phần cơm gà giao khu A. '.repeat(200);
+  await send(page, text);
+  const result = page.getByRole('article', { name: 'Kết quả 1', exact: true });
+  await expect(result.getByText(text.trim(), { exact: true })).toBeVisible();
+  const food = result.getByRole('textbox', { name: 'FOOD', exact: true });
+  const originalWidth = (await food.boundingBox()).width;
+  await food.fill('cơm gà xé với rau và nước sốt riêng');
+  await expect.poll(async () => (await food.boundingBox()).width).toBeGreaterThan(originalWidth);
+  await food.fill('x'.repeat(700));
+  await expect.poll(() => food.evaluate((element) => element.scrollHeight <= element.clientHeight + 2)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await food.fill('cơm');
+  await expect.poll(async () => (await food.boundingBox()).width).toBeLessThanOrEqual(originalWidth);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await food.fill('địa chỉ hoặc ghi chú dài '.repeat(50));
+  await expect.poll(() => food.evaluate((element) => element.scrollHeight <= element.clientHeight + 2)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test('selecting another result updates the same order and preserves both request/result pairs', async ({ page }) => {

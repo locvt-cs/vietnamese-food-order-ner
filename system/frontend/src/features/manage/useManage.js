@@ -14,9 +14,11 @@ export function useManage() {
   const [hasMore, setHasMore] = useState(false);
   const [pages, setPages] = useState(1);
   const [notice, setNotice] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
   const requestSequence = useRef(0);
   const attempts = useRef(new Map());
   const busyIds = useRef(new Set());
+  const removedIds = useRef(new Set());
   const active = sessions.find((session) => session.id === activeId) || sessions[0];
   const patch = useCallback((id, changes) => setSessions((previous) => previous.map((session) =>
     session.id === id ? { ...session, ...(typeof changes === 'function' ? changes(session) : changes) } : session)), []);
@@ -26,7 +28,8 @@ export function useManage() {
     try {
       const results = await Promise.all(Array.from({ length: pages }, (_, page) => api(`/orders?page=${page}`)));
       if (sequence !== requestSequence.current) return;
-      const all = [...new Map(results.flatMap((result) => result.orders).map((order) => [order.id, order])).values()];
+      const all = [...new Map(results.flatMap((result) => result.orders).map((order) => [order.id, order])).values()]
+        .filter((order) => !removedIds.current.has(order.id));
       setOrders(all); setHasMore(results.at(-1).hasMore); setListError('');
       setSessions((previous) => previous.map((session) => {
         const order = all.find((item) => item.id === session.id);
@@ -66,6 +69,7 @@ export function useManage() {
     if (cached && !reload) { setActiveId(order.id); setNotice(''); return; }
     try {
       const saved = await api(`/orders/${order.id}`);
+      if (removedIds.current.has(order.id)) return;
       const session = { ...saved, input: '', busy: false, error: '', dirty: false, conflict: false };
       setSessions((previous) => [...previous.filter((item) => item.id !== saved.id), session]);
       setActiveId(saved.id); setNotice('');
@@ -93,6 +97,32 @@ export function useManage() {
       dirty: true, error: '' }));
     setNotice('Đã bỏ cặp yêu cầu/kết quả khỏi bản nháp. Đơn đã lưu (nếu có) giữ nguyên cho đến khi xác nhận lại.');
   }
+  async function remove(order) {
+    if (busyIds.current.has(order.id)) throw new Error('Đơn đang được xử lý. Vui lòng chờ trước khi xóa.');
+    busyIds.current.add(order.id);
+    setDeletingId(order.id);
+    patch(order.id, { busy: true });
+    try {
+      if (order.version > 0) {
+        await api(`/orders/${order.id}`, { method: 'DELETE', body: JSON.stringify({ expectedVersion: order.version }) });
+      }
+      removedIds.current.add(order.id);
+      requestSequence.current++;
+      attempts.current.delete(order.id);
+      setOrders((previous) => previous.filter((item) => item.id !== order.id));
+      setSessions((previous) => previous.filter((item) => item.id !== order.id));
+      setActiveId((previous) => previous === order.id ? null : previous);
+      setNotice(order.version ? 'Đã xóa đơn hàng.' : 'Đã xóa bản nháp.');
+      if (order.version > 0) refresh();
+    } catch (error) {
+      if (error.status === 409) refresh();
+      throw error;
+    } finally {
+      busyIds.current.delete(order.id);
+      setDeletingId(null);
+      patch(order.id, { busy: false });
+    }
+  }
   async function confirm(resultId) {
     if (busyIds.current.has(active.id) || active.status !== 'WAITING' || active.conflict) return;
     const id = active.id;
@@ -116,6 +146,6 @@ export function useManage() {
       if (error.status === 409) refresh();
     } finally { busyIds.current.delete(id); patch(id, { busy: false }); }
   }
-  return { active, sessions, orders, listError, loading, hasMore, notice, patch, create, open,
-    changeResult, send, discard, confirm, refresh, setActiveId, loadMore: () => setPages((value) => value + 1) };
+  return { active, sessions, orders, listError, loading, hasMore, notice, deletingId, patch, create, open,
+    changeResult, send, discard, confirm, remove, refresh, setActiveId, loadMore: () => setPages((value) => value + 1) };
 }

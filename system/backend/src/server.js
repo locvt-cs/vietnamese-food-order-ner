@@ -7,6 +7,7 @@ import { createApp } from './app.js';
 import { MongoOrderRepository } from './orders.js';
 import { NerService } from './ner.js';
 import { startupDiagnostic } from './startup-diagnostic.js';
+import { configureMongoDns } from './dns-config.js';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 // Only system/.env is loaded automatically. External credential files are never scanned.
@@ -27,6 +28,9 @@ const ner = new NerService({
 let client;
 let stage = 'connect';
 try {
+  if (configureMongoDns(process.env.MONGODB_DNS_SERVERS)) {
+    console.log('[DNS] Đã áp dụng DNS tùy chọn cho tiến trình backend.');
+  }
   client = new MongoClient(uri, { serverSelectionTimeoutMS: 8000 });
   await client.connect();
   stage = 'initialize';

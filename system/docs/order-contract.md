@@ -32,6 +32,7 @@ Bản nháp nằm trong bộ nhớ frontend; chỉ Confirm mới lưu Order. Khi
 | GET | `/api/orders?page=0` | `{orders, hasMore}`; 50 đơn/trang, updatedAt giảm dần; không kèm history |
 | GET | `/api/orders/:id` | Order đầy đủ cùng history |
 | PUT | `/api/orders/:id` | Xác nhận mới hoặc sửa Order, body như bên dưới |
+| DELETE | `/api/orders/:id` | Body `{expectedVersion}` → `{deleted: true}`; xóa đơn/lịch sử khi còn WAITING và version trùng |
 
 ```json
 {
@@ -51,8 +52,11 @@ Lỗi: 400 dữ liệu sai; 404 không có đơn; 409 xung đột trạng thái/
 - Confirm tạo `WAITING`. Chỉ sửa Order khi vẫn `WAITING` và version trùng.
 - MongoDB update lọc đồng thời `_id`, `status`, `version` trong một thao tác atomic.
 - Xác nhận trùng cùng confirmationId và cùng nội dung trả bản đã lưu; không tạo đơn thứ hai.
+- Xóa dùng `deleteOne` lọc đồng thời `_id`, `status: WAITING`, `version`. Nếu đơn đã bị xóa, trả thành công để hỗ trợ retry; đơn đang xử lý hoặc version khác trả 409. Client đóng hội thoại đã xóa và gỡ bản nháp trong bộ nhớ. Bản nháp chưa lưu chỉ xóa local, không gọi API.
 - Người B khi làm Kitchen/Delivery phải áp dụng cùng quy tắc atomic và tăng version mỗi lần đổi trạng thái; không dùng endpoint Manage để chuyển trạng thái.
 
 Luồng dự kiến: `WAITING → PREPARING → READY → DELIVERING → DELIVERED`. Chuyển sang CANCELLED và xử lý giao thất bại cần thống nhất thêm trước khi triển khai. Manage khóa sửa với mọi trạng thái khác WAITING.
 
 Danh sách hiện dùng phân trang offset; dữ liệu thay đổi liên tục có thể dịch vị trí giữa các lần tải trang. Frontend tải lại các trang đang xem và loại ID trùng; có thể chuyển sang cursor pagination khi quy mô tăng.
+
+Không giới hạn số từ/ký tự hoặc số thực thể theo nghiệp vụ. API nhận tối đa 8 MiB/request, Order phải nhỏ hơn 16 MiB và history tối đa 20 kết quả. NER xử lý văn bản dài qua các cửa sổ chồng lặp, giữ mỗi từ một lần theo thứ tự nguồn.

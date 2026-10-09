@@ -7,7 +7,8 @@ export function createApp({ repository, ner }) {
   const app = express();
   const orders = new OrderService(repository);
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '256kb' }));
+  // No word/character cap; retain a transport budget for process/database memory.
+  app.use(express.json({ limit: '8mb' }));
   app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   app.get('/api/health', (req, res) => res.json({ ok: true }));
   app.post('/api/analyze', async (req, res) => {
@@ -21,6 +22,10 @@ export function createApp({ repository, ner }) {
     res.json(await repository.list(page));
   });
   app.get('/api/orders/:id', async (req, res) => res.json(publicOrder(await repository.get(validateId(req.params.id)))));
+  app.delete('/api/orders/:id', async (req, res) => {
+    await orders.remove(validateId(req.params.id), req.body?.expectedVersion);
+    res.json({ deleted: true });
+  });
   app.put('/api/orders/:id', async (req, res) => {
     const order = await orders.confirm(validateId(req.params.id), validateConfirmation(req.body));
     res.json(publicOrder(order));
@@ -29,7 +34,7 @@ export function createApp({ repository, ner }) {
   app.use((error, req, res, next) => {
     if (error instanceof AppError) return res.status(error.status).json({ message: error.message });
     if (error.type === 'entity.parse.failed') return res.status(400).json({ message: 'JSON không hợp lệ.' });
-    if (error.type === 'entity.too.large') return res.status(413).json({ message: 'Dữ liệu quá lớn.' });
+    if (error.type === 'entity.too.large') return res.status(413).json({ message: 'Dung lượng yêu cầu vượt 8 MB. Hãy chia thành các đơn nhỏ hơn.' });
     res.status(500).json({ message: 'Không thể xử lý yêu cầu. Vui lòng thử lại.' });
   });
   return app;
